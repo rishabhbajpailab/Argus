@@ -1,0 +1,120 @@
+# ---------------------------------------------------------------------------
+# Argus CI — GitHub Actions
+#
+# This workflow is intentionally DISABLED for now.
+# Uncomment the `on:` trigger once you have confirmed that local runners
+# have adequate capacity and the build/test suite is stable.
+#
+# TODO(CODEX): Enable CI by uncommenting the `on:` section below and
+#              verifying that self-hosted or GitHub-hosted runners have:
+#                - Rust stable toolchain
+#                - Elixir 1.16 / OTP 26
+#                - Docker Compose v2
+# ---------------------------------------------------------------------------
+
+# Uncomment to enable:
+# on:
+#   push:
+#     branches: [main, "copilot/**"]
+#   pull_request:
+#     branches: [main]
+
+on:
+  workflow_dispatch: {}   # manual trigger only
+
+name: CI
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Rust: fmt + clippy + test
+  # --------------------------------------------------------------------------
+  rust:
+    name: Rust (fmt / clippy / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/connector_host
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtactions/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            crates/connector_host/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('crates/connector_host/Cargo.toml') }}
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+  # --------------------------------------------------------------------------
+  # Elixir: format + test
+  # --------------------------------------------------------------------------
+  elixir:
+    name: Elixir (format / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/router_core
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.16"
+          otp-version: "26"
+
+      - name: Cache Mix deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/router_core/deps
+            apps/router_core/_build
+          key: ${{ runner.os }}-mix-${{ hashFiles('apps/router_core/mix.exs') }}
+
+      - name: Install deps
+        run: mix deps.get
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+      - name: Run tests
+        run: mix test
+
+  # --------------------------------------------------------------------------
+  # Docker compose smoke test
+  # --------------------------------------------------------------------------
+  # docker-smoke:
+  #   name: Docker compose smoke
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Build images
+  #       run: docker compose build
+  #     - name: Start stack
+  #       run: docker compose up -d
+  #     - name: Wait for router
+  #       run: sleep 15
+  #     - name: Publish test message
+  #       run: bash tools/demo_producers/publish_kafka.sh
+  #     - name: Check metrics endpoint
+  #       run: curl --fail http://localhost:4000/metrics
+  #     - name: Tear down
+  #       run: docker compose down
