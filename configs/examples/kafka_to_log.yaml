@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# kafka_to_log.yaml — Kafka input → log sink + Kafka output
+#
+# This is the "happy-path" demo config.  Run with:
+#   ROUTER_CONFIG=configs/examples/kafka_to_log.yaml mix run --no-halt
+# ---------------------------------------------------------------------------
+
+inputs:
+  kafka_in:
+    type: kafka
+    brokers: "${KAFKA_BROKERS:localhost:9092}"
+    topic: input.events
+    group_id: argus-router-group
+
+outputs:
+  log_out:
+    type: log
+    # Prints every envelope as structured JSON to stdout/stderr
+
+  kafka_out:
+    type: kafka
+    brokers: "${KAFKA_BROKERS:localhost:9092}"
+    topic: output.events
+
+pipelines:
+  demo:
+    from: kafka_in
+    # transforms:
+    #   - type: add_fields
+    #     fields:
+    #       routed_by: argus
+    to:
+      - log_out
+      - kafka_out

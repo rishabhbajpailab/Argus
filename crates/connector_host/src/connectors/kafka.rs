@@ -1,0 +1,153 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use rskafka::client::partition::UnknownTopicHandling;
+use rskafka::client::ClientBuilder;
+use rskafka::record::RecordAndOffset;
+use tokio::sync::mpsc;
+use tracing::{error, info, warn};
+
+use crate::envelope::Envelope;
+use crate::protocol::Event;
+
+/// Spawn a Kafka consumer that reads `topic` and forwards `Event::Ingest`
+/// messages to `event_tx`.
+///
+/// Runs until `event_tx` is dropped or the consumer encounters a fatal error.
+pub fn spawn_consumer(
+    input_name: String,
+    config: HashMap<String, serde_json::Value>,
+    event_tx: mpsc::Sender<Event>,
+) {
+    tokio::spawn(async move {
+        let brokers = config
+            .get("brokers")
+            .and_then(|v| v.as_str())
+            .unwrap_or("localhost:9092");
+
+        let topic = config
+            .get("topic")
+            .and_then(|v| v.as_str())
+            .unwrap_or("input.events")
+            .to_string();
+
+        let broker_addrs: Vec<String> = brokers.split(',').map(|s| s.trim().to_string()).collect();
+
+        info!(
+            "Kafka consumer '{}' connecting to {:?}, topic '{}'",
+            input_name, broker_addrs, topic
+        );
+
+        let client = match ClientBuilder::new(broker_addrs).build().await {
+            Ok(c) => Arc::new(c),
+            Err(e) => {
+                error!("Failed to create Kafka client for input '{}': {}", input_name, e);
+                return;
+            }
+        };
+
+        let partition_client = match client
+            .partition_client(topic.clone(), 0, UnknownTopicHandling::Error)
+            .await
+        {
+            Ok(pc) => Arc::new(pc),
+            Err(e) => {
+                error!(
+                    "Failed to get partition client for topic '{}': {}",
+                    topic, e
+                );
+                return;
+            }
+        };
+
+        // Start consuming from the latest committed offset, or the beginning.
+        let mut offset: i64 = 0;
+
+        info!("Kafka consumer '{}' started, polling from offset {}", input_name, offset);
+
+        loop {
+            match partition_client.fetch_records(offset, 1..1_000_000, 1_000).await {
+                Ok((records, _high_watermark)) => {
+                    if records.is_empty() {
+                        // No new records — yield and retry.
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                        continue;
+                    }
+
+                    for RecordAndOffset { record, offset: rec_offset } in &records {
+                        let payload: serde_json::Value = record
+                            .value
+                            .as_deref()
+                            .and_then(|b| serde_json::from_slice(b).ok())
+                            .unwrap_or(serde_json::Value::Null);
+
+                        let envelope = Envelope::new(input_name.clone(), payload);
+                        let event = Event::Ingest {
+                            input: input_name.clone(),
+                            envelope,
+                        };
+
+                        if event_tx.send(event).await.is_err() {
+                            info!("Event channel closed, stopping consumer '{}'", input_name);
+                            return;
+                        }
+
+                        offset = rec_offset + 1;
+                    }
+                }
+                Err(e) => {
+                    warn!("Kafka fetch error for input '{}': {}", input_name, e);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
+    });
+}
+
+/// Create a Kafka producer handle (topic + client) for use by the output dispatcher.
+pub async fn create_producer(
+    output_name: &str,
+    config: &HashMap<String, serde_json::Value>,
+) -> Result<KafkaOutput, String> {
+    let brokers = config
+        .get("brokers")
+        .and_then(|v| v.as_str())
+        .unwrap_or("localhost:9092");
+
+    let topic = config
+        .get("topic")
+        .and_then(|v| v.as_str())
+        .unwrap_or("output.events")
+        .to_string();
+
+    let broker_addrs: Vec<String> = brokers.split(',').map(|s| s.trim().to_string()).collect();
+
+    info!(
+        "Kafka output '{}' connecting to {:?}, topic '{}'",
+        output_name, broker_addrs, topic
+    );
+
+    let client = ClientBuilder::new(broker_addrs)
+        .build()
+        .await
+        .map_err(|e| format!("Failed to create Kafka client: {}", e))?;
+
+    let client = Arc::new(client);
+
+    let partition_client = client
+        .partition_client(topic.clone(), 0, UnknownTopicHandling::Error)
+        .await
+        .map_err(|e| format!("Failed to get partition client for '{}': {}", topic, e))?;
+
+    Ok(KafkaOutput {
+        client: Arc::new(partition_client),
+        topic,
+    })
+}
+
+/// Handle to a Kafka output partition.
+pub struct KafkaOutput {
+    pub client: Arc<rskafka::client::partition::PartitionClient>,
+    #[allow(dead_code)]
+    pub topic: String,
+}
