@@ -9,7 +9,9 @@ This file provides guidance for AI assistants (Claude, Copilot, etc.) working on
 **Argus** is a declarative event-routing system that consolidates messages from multiple sources (e.g., Kafka topics) and fans them out to multiple sinks (e.g., log, Postgres). It uses a two-process architecture:
 
 - **Elixir/OTP** (`apps/router_core`) — orchestration, supervision, pipeline execution, metrics HTTP endpoint
-- **Rust** (`crates/connector_host`) — native I/O connectors and sinks, communicating with Elixir via line-delimited JSON over stdio
+- **Rust** (`crates/connector_host`) — native I/O connectors and sinks, communicating with Elixir via stdio
+
+**Active migration:** The IPC transport between Elixir and Rust is being consolidated from line-delimited JSON to **Protocol Buffers (protobuf)**. All new IPC work must use the proto-defined message types. The JSON path is being removed; do not add new JSON-encoded IPC messages.
 
 ---
 
@@ -27,7 +29,7 @@ Argus/
 │   │   ├── metrics.ex         # HTTP /metrics (JSON counters)
 │   │   └── ipc/
 │   │       ├── rust_host.ex   # GenServer managing Erlang Port to Rust
-│   │       └── protocol.ex    # JSON encode/decode for IPC
+│   │       └── protocol.ex    # Protobuf encode/decode for IPC (replacing JSON)
 │   ├── test/
 │   │   ├── config_test.exs    # Config loading, validation, env-var tests
 │   │   └── pipeline_test.exs  # Pipeline transform/fan-out tests
@@ -36,12 +38,14 @@ Argus/
 ├── crates/connector_host/     # Rust binary
 │   └── src/
 │       ├── main.rs            # Tokio main loop; stdin/stdout IPC dispatch
-│       ├── protocol.rs        # Serde types for IPC commands & events
-│       ├── envelope.rs        # Canonical envelope (mirrors Elixir)
+│       ├── protocol.rs        # Protobuf-backed IPC commands & events (replacing serde_json types)
+│       ├── envelope.rs        # Canonical envelope (mirrors Elixir; derived from proto schema)
 │       ├── connectors/
 │       │   └── kafka.rs       # rskafka Kafka consumer
 │       └── sinks/
 │           └── log.rs         # Log sink (stderr via tracing)
+├── proto/                     # Protobuf schema definitions (source of truth for IPC)
+│   └── argus.proto            # Commands, Events, Envelope messages
 ├── configs/examples/          # Example YAML configs
 ├── docs/
 │   ├── ARCHITECTURE.md        # Component overview, IPC protocol, design decisions
@@ -61,8 +65,9 @@ Argus/
 
 | Layer | Language | Key Libraries |
 |---|---|---|
-| Router core | Elixir 1.16 / OTP 26 | plug_cowboy, jason, yaml_elixir |
-| Connector host | Rust 1.77 (stable) | tokio, serde_json, rskafka, tracing, chrono, uuid |
+| Router core | Elixir 1.16 / OTP 26 | plug_cowboy, jason, yaml_elixir, protobuf (exprotobuf or protox) |
+| Connector host | Rust 1.77 (stable) | tokio, prost, prost-build, rskafka, tracing, chrono, uuid |
+| IPC encoding | Protobuf | `proto/argus.proto` — length-prefixed framing over stdio |
 | Message broker | Redpanda (Kafka-compatible) | |
 | Container | Docker / docker compose | |
 
@@ -70,31 +75,35 @@ Argus/
 
 ## IPC Protocol
 
-Elixir sends **commands** to Rust on stdin; Rust sends **events** to Elixir on stdout. All messages are newline-terminated JSON.
+Elixir sends **commands** to Rust on stdin; Rust sends **events** to Elixir on stdout.
+
+> **Migration in progress:** The wire format is being consolidated from newline-terminated JSON to **length-prefixed Protocol Buffers**. The canonical schema lives in `proto/argus.proto`. Generated code for Rust (`prost`) and Elixir (`protox` or `exprotobuf`) must be derived from that single source of truth. Do not introduce new JSON-encoded IPC messages; update the `.proto` file instead.
+
+**Framing:** Each message is a 4-byte big-endian `uint32` length header followed by the serialised protobuf bytes.
 
 **Commands (Elixir → Rust):**
-| `type` | Purpose |
+| Message | Purpose |
 |---|---|
-| `start_input` | Start a named connector (e.g., Kafka consumer) |
-| `start_output` | Register a named sink |
-| `send_output` | Route an envelope to a named sink |
-| `shutdown` | Terminate the Rust process |
+| `StartInput` | Start a named connector (e.g., Kafka consumer) |
+| `StartOutput` | Register a named sink |
+| `SendOutput` | Route an envelope to a named sink |
+| `Shutdown` | Terminate the Rust process |
 
 **Events (Rust → Elixir):**
-| `type` | Purpose |
+| Message | Purpose |
 |---|---|
-| `ingest` | New message received from a connector |
-| `ack` | Sink successfully processed an envelope |
-| `error` | Connector or sink error |
+| `IngestEvent` | New message received from a connector |
+| `AckEvent` | Sink successfully processed an envelope |
+| `ErrorEvent` | Connector or sink error |
 
-The canonical **Envelope** structure:
-```json
-{
-  "id": "<uuid>",
-  "source": "<input-name>",
-  "payload": { ... },
-  "metadata": { ... },
-  "ts": "<ISO-8601 timestamp>"
+The canonical **Envelope** message (defined in `proto/argus.proto`):
+```proto
+message Envelope {
+  string id      = 1;  // UUID
+  string source  = 2;  // input name
+  bytes  payload = 3;  // opaque message bytes
+  map<string, string> metadata = 4;
+  string ts      = 5;  // ISO-8601 timestamp
 }
 ```
 
@@ -252,7 +261,7 @@ When enabled, the pipeline runs:
 ### Rust
 
 - **Async**: all I/O is async via Tokio; use `tokio::spawn` for concurrent tasks
-- **Serialisation**: derive `serde::Serialize` / `serde::Deserialize` on protocol types
+- **Serialisation**: IPC types are generated by `prost-build` from `proto/argus.proto`; do not hand-write serde types for IPC messages
 - **Logging**: use `tracing` macros (`info!`, `warn!`, `error!`); do not use `println!` for diagnostics
 - **Error handling**: prefer explicit `match` or `?`; minimise `unwrap()` in production paths
 - **Formatting/linting**: `cargo fmt` + `cargo clippy -- -D warnings` must pass
@@ -267,11 +276,12 @@ When enabled, the pipeline runs:
 
 ## Adding a New Connector or Sink
 
-1. **Rust side** — create `crates/connector_host/src/connectors/<name>.rs` (or `sinks/<name>.rs`) and register it in `main.rs`'s command dispatch.
-2. **Protocol** — add any new command/event variants to `protocol.rs` (Rust) and `ipc/protocol.ex` (Elixir).
-3. **Config validation** — add the new `type` string to the allowlist in `apps/router_core/lib/config.ex`.
-4. **Tests** — add at least one ExUnit test covering the new config path.
-5. **Docs** — update `docs/CONFIG.md` with the new input/output type schema.
+1. **Proto schema** — if the connector needs new command/event fields, add them to `proto/argus.proto` first and regenerate the Rust (`prost`) and Elixir bindings.
+2. **Rust side** — create `crates/connector_host/src/connectors/<name>.rs` (or `sinks/<name>.rs`) and register it in `main.rs`'s command dispatch. Use the generated protobuf types, not raw JSON structs.
+3. **Elixir side** — update `ipc/protocol.ex` to handle any new protobuf message variants.
+4. **Config validation** — add the new `type` string to the allowlist in `apps/router_core/lib/config.ex`.
+5. **Tests** — add at least one ExUnit test covering the new config path.
+6. **Docs** — update `docs/CONFIG.md` with the new input/output type schema.
 
 ---
 
@@ -279,6 +289,7 @@ When enabled, the pipeline runs:
 
 The following are explicitly unimplemented (tracked as `TODO(CODEX)` comments in source):
 
+- **Protobuf IPC migration** — in progress; JSON path still present during transition; target is full removal of line-delimited JSON from `protocol.rs` / `protocol.ex`
 - **MQTT connector** — stub config exists; Rust implementation missing
 - **RabbitMQ connector** — config type recognised but not implemented
 - **Database sinks** — Postgres, ClickHouse planned
