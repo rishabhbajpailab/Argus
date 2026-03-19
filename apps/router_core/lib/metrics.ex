@@ -59,12 +59,11 @@ defmodule RouterCore.Metrics do
     case Cowboy.http(RouterCore.Metrics.Router, [], port: port) do
       {:ok, _pid} ->
         Logger.info("Metrics endpoint listening on http://0.0.0.0:#{port}/metrics")
+        {:ok, state}
 
       {:error, reason} ->
-        Logger.warning("Could not start metrics HTTP server: #{inspect(reason)}")
+        {:stop, {:metrics_http_failed, reason}}
     end
-
-    {:ok, state}
   end
 
   @impl GenServer
