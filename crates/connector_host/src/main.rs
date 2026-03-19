@@ -1,3 +1,4 @@
+mod config;
 mod connectors;
 mod envelope;
 mod protocol;
@@ -19,9 +20,7 @@ use protocol::{Command, Event};
 
 enum OutputHandle {
     Kafka(KafkaOutput),
-    Log {
-        config: HashMap<String, serde_json::Value>,
-    },
+    Log,
 }
 
 type OutputRegistry = Arc<Mutex<HashMap<String, OutputHandle>>>;
@@ -134,7 +133,16 @@ async fn handle_start_input(
     match input_type {
         "kafka" => {
             info!("Starting Kafka input '{}'", name);
-            connectors::kafka::spawn_consumer(name, config, event_tx.clone());
+            let cfg: config::KafkaConsumerConfig = match serde_json::from_value(
+                serde_json::to_value(&config).unwrap_or_default(),
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Invalid config for Kafka input '{}': {}", name, e);
+                    return;
+                }
+            };
+            connectors::kafka::spawn_consumer(name, cfg, event_tx.clone());
         }
         // ROADMAP: "mqtt" => connectors::mqtt::spawn_consumer(...)
         // ROADMAP: "rabbitmq" => connectors::rabbitmq::spawn_consumer(...)
@@ -156,7 +164,16 @@ async fn handle_start_output(
 
     let handle = match output_type {
         "kafka" => {
-            match connectors::kafka::create_producer(&name, &config).await {
+            let cfg: config::KafkaProducerConfig = match serde_json::from_value(
+                serde_json::to_value(&config).unwrap_or_default(),
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Invalid config for Kafka output '{}': {}", name, e);
+                    return;
+                }
+            };
+            match connectors::kafka::create_producer(&name, cfg).await {
                 Ok(kafka_out) => OutputHandle::Kafka(kafka_out),
                 Err(e) => {
                     error!("Failed to create Kafka output '{}': {}", name, e);
@@ -165,8 +182,18 @@ async fn handle_start_output(
             }
         }
         "log" => {
+            // Parse for validation; LogSinkConfig currently has no required fields.
+            let _cfg: config::LogSinkConfig = match serde_json::from_value(
+                serde_json::to_value(&config).unwrap_or_default(),
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Invalid config for log output '{}': {}", name, e);
+                    return;
+                }
+            };
             info!("Starting log output '{}'", name);
-            OutputHandle::Log { config }
+            OutputHandle::Log
         }
         // ROADMAP: "mqtt" => ...
         // ROADMAP: "postgres" => sinks::postgres::create_handle(...)
@@ -224,8 +251,8 @@ async fn handle_send_output(
             }
         }
 
-        Some(OutputHandle::Log { config }) => {
-            sinks::log::emit(&name, &envelope, config);
+        Some(OutputHandle::Log) => {
+            sinks::log::emit(&name, &envelope);
             let ack = Event::Ack {
                 correlation_ref: Some(envelope.id.clone()),
             };

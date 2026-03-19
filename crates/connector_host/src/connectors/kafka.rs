@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use rskafka::client::partition::UnknownTopicHandling;
@@ -7,6 +6,7 @@ use rskafka::record::RecordAndOffset;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
+use crate::config::{KafkaConsumerConfig, KafkaProducerConfig};
 use crate::envelope::Envelope;
 use crate::protocol::Event;
 
@@ -16,20 +16,9 @@ use crate::protocol::Event;
 
 async fn build_partition_client(
     name: &str,
-    config: &HashMap<String, serde_json::Value>,
-    default_topic: &str,
+    brokers: &str,
+    topic: &str,
 ) -> Result<(rskafka::client::partition::PartitionClient, String), String> {
-    let brokers = config
-        .get("brokers")
-        .and_then(|v| v.as_str())
-        .unwrap_or("localhost:9092");
-
-    let topic = config
-        .get("topic")
-        .and_then(|v| v.as_str())
-        .unwrap_or(default_topic)
-        .to_string();
-
     let broker_addrs: Vec<String> = brokers
         .split(',')
         .map(|s| s.trim().to_string())
@@ -48,7 +37,7 @@ async fn build_partition_client(
     let client = Arc::new(client);
 
     let partition_client = client
-        .partition_client(topic.clone(), 0, UnknownTopicHandling::Error)
+        .partition_client(topic.to_string(), 0, UnknownTopicHandling::Error)
         .await
         .map_err(|e| {
             format!(
@@ -57,7 +46,7 @@ async fn build_partition_client(
             )
         })?;
 
-    Ok((partition_client, topic))
+    Ok((partition_client, topic.to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -70,12 +59,12 @@ async fn build_partition_client(
 /// Runs until `event_tx` is dropped or the consumer encounters a fatal error.
 pub fn spawn_consumer(
     input_name: String,
-    config: HashMap<String, serde_json::Value>,
+    cfg: KafkaConsumerConfig,
     event_tx: mpsc::Sender<Event>,
 ) {
     tokio::spawn(async move {
         let (pc, topic) =
-            match build_partition_client(&input_name, &config, "input.events").await {
+            match build_partition_client(&input_name, &cfg.brokers, &cfg.topic).await {
                 Ok(pair) => pair,
                 Err(e) => {
                     error!("{}", e);
@@ -142,10 +131,10 @@ pub fn spawn_consumer(
 /// Create a Kafka producer handle (topic + client) for use by the output dispatcher.
 pub async fn create_producer(
     output_name: &str,
-    config: &HashMap<String, serde_json::Value>,
+    cfg: KafkaProducerConfig,
 ) -> Result<KafkaOutput, String> {
     let (partition_client, topic) =
-        build_partition_client(output_name, config, "output.events").await?;
+        build_partition_client(output_name, &cfg.brokers, &cfg.topic).await?;
 
     Ok(KafkaOutput {
         client: Arc::new(partition_client),
