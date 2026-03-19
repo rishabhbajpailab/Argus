@@ -21,7 +21,7 @@ defmodule RouterCore.Pipeline do
   # Client API
   # ---------------------------------------------------------------------------
 
-  @spec start_link(map()) :: GenServer.on_start()
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     name = Keyword.fetch!(opts, :name)
     GenServer.start_link(__MODULE__, opts, name: via(name))
