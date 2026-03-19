@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
-use rskafka::record::Record;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, warn};
 
@@ -107,105 +106,134 @@ async fn handle_command(
 ) {
     match cmd {
         Command::StartInput { name, config } => {
-            let input_type = config
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
+            handle_start_input(name, config, event_tx).await;
+        }
+        Command::StartOutput { name, config } => {
+            handle_start_output(name, config, outputs).await;
+        }
+        Command::SendOutput { name, envelope } => {
+            handle_send_output(name, envelope, outputs, event_tx).await;
+        }
+        Command::Shutdown => {
+            info!("Received shutdown command");
+            std::process::exit(0);
+        }
+    }
+}
 
-            match input_type {
-                "kafka" => {
-                    info!("Starting Kafka input '{}'", name);
-                    connectors::kafka::spawn_consumer(name, config, event_tx.clone());
-                }
-                // TODO(CODEX): "mqtt" => connectors::mqtt::spawn_consumer(...)
-                // TODO(CODEX): "rabbitmq" => connectors::rabbitmq::spawn_consumer(...)
-                other => {
-                    warn!("Unknown input type '{}' for input '{}'", other, name);
+async fn handle_start_input(
+    name: String,
+    config: HashMap<String, serde_json::Value>,
+    event_tx: &mpsc::Sender<Event>,
+) {
+    let input_type = config
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    match input_type {
+        "kafka" => {
+            info!("Starting Kafka input '{}'", name);
+            connectors::kafka::spawn_consumer(name, config, event_tx.clone());
+        }
+        // ROADMAP: "mqtt" => connectors::mqtt::spawn_consumer(...)
+        // ROADMAP: "rabbitmq" => connectors::rabbitmq::spawn_consumer(...)
+        other => {
+            warn!("Unknown input type '{}' for input '{}'", other, name);
+        }
+    }
+}
+
+async fn handle_start_output(
+    name: String,
+    config: HashMap<String, serde_json::Value>,
+    outputs: &OutputRegistry,
+) {
+    let output_type = config
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    let handle = match output_type {
+        "kafka" => {
+            match connectors::kafka::create_producer(&name, &config).await {
+                Ok(kafka_out) => OutputHandle::Kafka(kafka_out),
+                Err(e) => {
+                    error!("Failed to create Kafka output '{}': {}", name, e);
+                    return;
                 }
             }
         }
+        "log" => {
+            info!("Starting log output '{}'", name);
+            OutputHandle::Log { config }
+        }
+        // ROADMAP: "mqtt" => ...
+        // ROADMAP: "postgres" => sinks::postgres::create_handle(...)
+        other => {
+            warn!("Unknown output type '{}' for output '{}'", other, name);
+            return;
+        }
+    };
 
-        Command::StartOutput { name, config } => {
-            let output_type = config
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
+    outputs.lock().await.insert(name, handle);
+}
 
-            let handle = match output_type {
-                "kafka" => {
-                    match connectors::kafka::create_producer(&name, &config).await {
-                        Ok(kafka_out) => OutputHandle::Kafka(kafka_out),
-                        Err(e) => {
-                            error!("Failed to create Kafka output '{}': {}", name, e);
-                            return;
-                        }
-                    }
-                }
-                "log" => {
-                    info!("Starting log output '{}'", name);
-                    OutputHandle::Log { config }
-                }
-                // TODO(CODEX): "mqtt" => ...
-                // TODO(CODEX): "postgres" => sinks::postgres::create_handle(...)
-                other => {
-                    warn!("Unknown output type '{}' for output '{}'", other, name);
-                    return;
-                }
+async fn handle_send_output(
+    name: String,
+    envelope: crate::envelope::Envelope,
+    outputs: &OutputRegistry,
+    event_tx: &mpsc::Sender<Event>,
+) {
+    let mut registry = outputs.lock().await;
+
+    match registry.get_mut(&name) {
+        Some(OutputHandle::Kafka(kafka_out)) => {
+            let payload = serde_json::to_vec(&envelope)
+                .unwrap_or_else(|_| b"{}".to_vec());
+
+            let record = rskafka::record::Record {
+                key: None,
+                value: Some(payload),
+                headers: Default::default(),
+                timestamp: chrono::Utc::now(),
             };
 
-            outputs.lock().await.insert(name, handle);
-        }
-
-        Command::SendOutput { name, envelope } => {
-            let mut registry = outputs.lock().await;
-
-            match registry.get_mut(&name) {
-                Some(OutputHandle::Kafka(kafka_out)) => {
-                    let payload = serde_json::to_vec(&envelope)
-                        .unwrap_or_else(|_| b"{}".to_vec());
-
-                    let record = Record {
-                        key: None,
-                        value: Some(payload),
-                        headers: Default::default(),
-                        timestamp: chrono::Utc::now(),
-                    };
-
-                    match kafka_out.client.produce(vec![record], rskafka::client::partition::Compression::NoCompression).await {
-                        Ok(_) => {
-                            let ack = Event::Ack {
-                                correlation_ref: Some(envelope.id.clone()),
-                            };
-                            let _ = event_tx.send(ack).await;
-                        }
-                        Err(e) => {
-                            error!("Kafka produce error for output '{}': {}", name, e);
-                            let err = Event::Error {
-                                message: format!("Kafka produce failed: {}", e),
-                                details: None,
-                            };
-                            let _ = event_tx.send(err).await;
-                        }
-                    }
-                }
-
-                Some(OutputHandle::Log { config }) => {
-                    sinks::log::emit(&name, &envelope, config);
+            match kafka_out
+                .client
+                .produce(
+                    vec![record],
+                    rskafka::client::partition::Compression::NoCompression,
+                )
+                .await
+            {
+                Ok(_) => {
                     let ack = Event::Ack {
                         correlation_ref: Some(envelope.id.clone()),
                     };
                     let _ = event_tx.send(ack).await;
                 }
-
-                None => {
-                    warn!("send_output: unknown output name '{}'", name);
+                Err(e) => {
+                    error!("Kafka produce error for output '{}': {}", name, e);
+                    let err_event = Event::Error {
+                        message: format!("Kafka produce failed: {}", e),
+                        details: None,
+                    };
+                    let _ = event_tx.send(err_event).await;
                 }
             }
         }
 
-        Command::Shutdown => {
-            info!("Received shutdown command");
-            std::process::exit(0);
+        Some(OutputHandle::Log { config }) => {
+            sinks::log::emit(&name, &envelope, config);
+            let ack = Event::Ack {
+                correlation_ref: Some(envelope.id.clone()),
+            };
+            let _ = event_tx.send(ack).await;
+        }
+
+        None => {
+            warn!("send_output: unknown output name '{}'", name);
         }
     }
 }
