@@ -48,6 +48,15 @@ defmodule RouterCore.Supervisor do
   end
 
   defp metrics_port do
-    System.get_env("METRICS_PORT", "4000") |> String.to_integer()
+    raw = System.get_env("METRICS_PORT", "4000")
+
+    case Integer.parse(raw) do
+      {port, ""} ->
+        port
+
+      _ ->
+        raise ArgumentError,
+              "METRICS_PORT must be a valid integer, got: #{inspect(raw)}"
+    end
   end
 end
