@@ -100,8 +100,12 @@ defmodule RouterCore.IPC.RustHost do
 
   @impl GenServer
   def terminate(_reason, state) do
-    send_command(state.port, Protocol.shutdown())
-    Port.close(state.port)
+    try do
+      send_command(state.port, Protocol.shutdown())
+      Port.close(state.port)
+    rescue
+      _ -> :ok
+    end
   end
 
   # ---------------------------------------------------------------------------
