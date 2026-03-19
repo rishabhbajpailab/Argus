@@ -17,6 +17,8 @@ defmodule RouterCore.Metrics do
 
   require Logger
 
+  @valid_counters [:envelopes_ingested, :envelopes_emitted, :pipeline_errors]
+
   alias Plug.Cowboy
 
   # ---------------------------------------------------------------------------
@@ -66,8 +68,13 @@ defmodule RouterCore.Metrics do
   end
 
   @impl GenServer
-  def handle_cast({:inc, counter}, state) do
-    {:noreply, Map.update(state, counter, 1, &(&1 + 1))}
+  def handle_cast({:inc, counter}, state) when counter in @valid_counters do
+    {:noreply, Map.update!(state, counter, &(&1 + 1))}
+  end
+
+  def handle_cast({:inc, unknown}, state) do
+    Logger.warning("Metrics.inc/1 called with unknown counter: #{inspect(unknown)}")
+    {:noreply, state}
   end
 
   @impl GenServer
