@@ -54,27 +54,25 @@ defmodule RouterCore.Config do
     end
   end
 
-  defp validate_inputs(inputs) when is_map(inputs) do
-    Enum.reduce_while(inputs, :ok, fn {name, spec}, _acc ->
-      case validate_connector_spec(name, spec, @valid_input_types, "input") do
-        :ok -> {:cont, :ok}
-        err -> {:halt, err}
-      end
-    end)
-  end
+  defp validate_inputs(inputs) when is_map(inputs),
+    do: validate_connector_map(inputs, @valid_input_types, "input")
 
   defp validate_inputs(_), do: {:error, "'inputs' must be a map"}
 
-  defp validate_outputs(outputs) when is_map(outputs) do
-    Enum.reduce_while(outputs, :ok, fn {name, spec}, _acc ->
-      case validate_connector_spec(name, spec, @valid_output_types, "output") do
+  defp validate_outputs(outputs) when is_map(outputs),
+    do: validate_connector_map(outputs, @valid_output_types, "output")
+
+  defp validate_outputs(_), do: {:error, "'outputs' must be a map"}
+
+  @spec validate_connector_map(map(), [String.t()], String.t()) :: :ok | {:error, String.t()}
+  defp validate_connector_map(connectors, valid_types, kind) do
+    Enum.reduce_while(connectors, :ok, fn {name, spec}, _acc ->
+      case validate_connector_spec(name, spec, valid_types, kind) do
         :ok -> {:cont, :ok}
         err -> {:halt, err}
       end
     end)
   end
-
-  defp validate_outputs(_), do: {:error, "'outputs' must be a map"}
 
   defp validate_connector_spec(name, spec, valid_types, kind) when is_map(spec) do
     type = spec["type"]
