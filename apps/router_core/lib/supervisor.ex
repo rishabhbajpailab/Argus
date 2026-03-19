@@ -44,7 +44,10 @@ defmodule RouterCore.Supervisor do
         {Metrics, [port: metrics_port()]}
       ] ++ pipeline_children
 
-    Supervisor.init(children, strategy: :one_for_one)
+    # :rest_for_one ensures that if RustHost crashes, Metrics and all Pipeline
+    # processes are also restarted. This prevents pipelines from sending to a
+    # freshly-booted RustHost that has not yet re-registered its connectors.
+    Supervisor.init(children, strategy: :rest_for_one)
   end
 
   defp metrics_port do
