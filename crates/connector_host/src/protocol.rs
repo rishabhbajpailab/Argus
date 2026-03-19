@@ -49,7 +49,16 @@ pub enum Event {
 
 impl Event {
     /// Serialize to a newline-terminated JSON string.
+    /// Returns a JSON error event line if serialization fails (should never happen
+    /// for derived Serialize types with no non-serializable fields).
     pub fn to_line(&self) -> String {
-        serde_json::to_string(self).expect("Event serialization failed") + "\n"
+        serde_json::to_string(self)
+            .unwrap_or_else(|e| {
+                format!(
+                    r#"{{"event":"error","message":"serialization failed: {}"}}"#,
+                    e
+                )
+            })
+            + "\n"
     }
 }
