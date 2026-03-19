@@ -18,8 +18,6 @@ defmodule RouterCore.IPC.RustHost do
   alias RouterCore.{Envelope, Metrics, Pipeline}
   alias RouterCore.IPC.Protocol
 
-  @host_binary System.get_env("CONNECTOR_HOST_BIN", "./bin/connector_host")
-
   # ---------------------------------------------------------------------------
   # Client API
   # ---------------------------------------------------------------------------
@@ -41,7 +39,7 @@ defmodule RouterCore.IPC.RustHost do
 
   @impl GenServer
   def init(config) do
-    bin = System.get_env("CONNECTOR_HOST_BIN", @host_binary)
+    bin = System.get_env("CONNECTOR_HOST_BIN", "./bin/connector_host")
 
     port =
       Port.open({:spawn_executable, bin}, [
@@ -52,7 +50,7 @@ defmodule RouterCore.IPC.RustHost do
         args: []
       ])
 
-    state = %{port: port, config: config, buffer: ""}
+    state = %{port: port, config: config}
     send(self(), :configure)
     {:ok, state}
   end
