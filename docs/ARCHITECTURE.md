@@ -50,7 +50,7 @@
 |--------|----------------|
 | `protocol` | Serde types for IPC commands / events |
 | `envelope` | Canonical event struct (mirrors Elixir) |
-| `connectors::kafka` | Kafka consumer (rdkafka) |
+| `connectors::kafka` | Kafka consumer (rskafka) |
 | `sinks::log` | Print envelope as JSON to stderr |
 | Kafka producer | Inline in `main.rs` dispatch loop |
 
