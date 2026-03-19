@@ -83,8 +83,7 @@ Line-delimited JSON over the process's stdio:
 * **New sink**: add a module under `crates/connector_host/src/sinks/`.
 * **New transform**: implement `RouterCore.Transform` behaviour in
   `apps/router_core/lib/transforms/`.
-* **Config hot-reload**: TODO(CODEX) — add inotify watcher and reload signal
-  to `RouterCore.Supervisor`.
+* **Config hot-reload**: > **Issue:** Config hot-reload — add inotify watcher and reload signal to RouterCore.Supervisor.
 
 ## Design Decisions
 

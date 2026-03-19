@@ -9,8 +9,7 @@ defmodule RouterCore.Metrics do
 
   Exposed as JSON at GET /metrics on the configured port (default 4000).
 
-  TODO(CODEX): Replace with a proper Prometheus /metrics scrape endpoint
-               (e.g. using telemetry_metrics + telemetry_metrics_prometheus).
+  # ISSUE: Migrate to :telemetry + telemetry_metrics_prometheus for proper Prometheus scraping
   """
 
   use GenServer

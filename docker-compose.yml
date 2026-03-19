@@ -8,7 +8,7 @@ version: "3.9"
 #   2. redpanda-init — creates topics once broker is healthy
 #   3. router     — Elixir+Rust event-router application
 #
-# Optional services (commented out — TODO(CODEX): enable when connectors are ready):
+# Optional services (commented out — ROADMAP: enable when connectors are ready):
 #   - mqtt        — Eclipse Mosquitto MQTT broker
 #   - rabbitmq    — RabbitMQ broker
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # TODO(CODEX): Uncomment when MQTT connector is implemented
+  # ROADMAP: Uncomment when MQTT connector is implemented
   # -------------------------------------------------------------------------
   # mqtt:
   #   image: eclipse-mosquitto:2
@@ -88,7 +88,7 @@ services:
   #     - ./configs/mosquitto.conf:/mosquitto/config/mosquitto.conf
 
   # -------------------------------------------------------------------------
-  # TODO(CODEX): Uncomment when RabbitMQ connector is implemented
+  # ROADMAP: Uncomment when RabbitMQ connector is implemented
   # -------------------------------------------------------------------------
   # rabbitmq:
   #   image: rabbitmq:3-management

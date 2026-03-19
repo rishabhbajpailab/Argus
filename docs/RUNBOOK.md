@@ -95,8 +95,10 @@ cargo clippy -- -D warnings
 ```bash
 cd apps/router_core
 mix format --check-formatted
-mix credo --strict   # TODO(CODEX): add credo to deps
+mix credo --strict
 ```
+
+> **Issue:** Add `credo` to dev dependencies in mix.exs and enable `mix credo --strict` in CI.
 
 ---
 
