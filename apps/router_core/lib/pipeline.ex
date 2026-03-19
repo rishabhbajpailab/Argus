@@ -63,7 +63,14 @@ defmodule RouterCore.Pipeline do
 
   defp fanout(envelope, outputs) do
     Enum.each(outputs, fn output_name ->
-      case RustHost.send_output(output_name, envelope) do
+      result =
+        try do
+          RustHost.send_output(output_name, envelope)
+        catch
+          :exit, reason -> {:error, {:rust_host_unavailable, reason}}
+        end
+
+      case result do
         :ok ->
           Metrics.inc(:envelopes_emitted)
 
