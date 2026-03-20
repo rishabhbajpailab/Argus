@@ -1,3 +1,3 @@
 pub mod kafka;
-// TODO(CODEX): pub mod mqtt;
-// TODO(CODEX): pub mod rabbitmq;
+// ROADMAP: pub mod mqtt; — implement MQTT consumer connector
+// ROADMAP: pub mod rabbitmq; — implement RabbitMQ consumer connector

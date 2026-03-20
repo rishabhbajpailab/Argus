@@ -1,13 +1,12 @@
 # ---------------------------------------------------------------------------
 # mqtt_to_kafka.yaml — MQTT input → Kafka output  (STUB — not yet implemented)
 #
-# TODO(CODEX): Implement MQTT connector in crates/connector_host/src/connectors/mqtt.rs
-#              and add "mqtt" input type handling in Elixir config.ex validator.
+# ROADMAP: Implement MQTT connector (crates/connector_host/src/connectors/mqtt.rs)
 # ---------------------------------------------------------------------------
 
 inputs:
   mqtt_in:
-    type: mqtt                        # TODO(CODEX): not yet implemented
+    type: mqtt
     broker: "mqtt://localhost:1883"
     topic: "sensors/#"
     client_id: argus-mqtt-client

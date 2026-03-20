@@ -10,18 +10,7 @@ defmodule RouterCore.PipelineTest do
   setup do
     registry = start_supervised!({Registry, keys: :unique, name: RouterCore.Registry})
 
-    # Mock IPC RustHost: captures `send_output` calls
     test_pid = self()
-
-    {:ok, mock_host} =
-      Agent.start_link(fn -> [] end, name: RouterCore.IPC.RustHost)
-
-    # Stub GenServer call for send_output
-    # We use :meck would normally, but to avoid extra deps we patch via process dict.
-    # Instead, we test the pipeline in isolation by patching the fanout.
-    # The pipeline calls RustHost.send_output/2 via GenServer.call.
-    # We override RustHost with a simple stub process.
-    :ok = Agent.stop(mock_host)
 
     # Start a stub GenServer for RustHost
     {:ok, stub} = GenServer.start(RustHostStub, test_pid, name: RouterCore.IPC.RustHost)

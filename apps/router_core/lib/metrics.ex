@@ -9,13 +9,14 @@ defmodule RouterCore.Metrics do
 
   Exposed as JSON at GET /metrics on the configured port (default 4000).
 
-  TODO(CODEX): Replace with a proper Prometheus /metrics scrape endpoint
-               (e.g. using telemetry_metrics + telemetry_metrics_prometheus).
+  # ISSUE: Migrate to :telemetry + telemetry_metrics_prometheus for proper Prometheus scraping
   """
 
   use GenServer
 
   require Logger
+
+  @valid_counters [:envelopes_ingested, :envelopes_emitted, :pipeline_errors]
 
   alias Plug.Cowboy
 
@@ -57,17 +58,21 @@ defmodule RouterCore.Metrics do
     case Cowboy.http(RouterCore.Metrics.Router, [], port: port) do
       {:ok, _pid} ->
         Logger.info("Metrics endpoint listening on http://0.0.0.0:#{port}/metrics")
+        {:ok, state}
 
       {:error, reason} ->
-        Logger.warning("Could not start metrics HTTP server: #{inspect(reason)}")
+        {:stop, {:metrics_http_failed, reason}}
     end
-
-    {:ok, state}
   end
 
   @impl GenServer
-  def handle_cast({:inc, counter}, state) do
-    {:noreply, Map.update(state, counter, 1, &(&1 + 1))}
+  def handle_cast({:inc, counter}, state) when counter in @valid_counters do
+    {:noreply, Map.update!(state, counter, &(&1 + 1))}
+  end
+
+  def handle_cast({:inc, unknown}, state) do
+    Logger.warning("Metrics.inc/1 called with unknown counter: #{inspect(unknown)}")
+    {:noreply, state}
   end
 
   @impl GenServer

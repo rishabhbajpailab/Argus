@@ -21,7 +21,7 @@ defmodule RouterCore.Pipeline do
   # Client API
   # ---------------------------------------------------------------------------
 
-  @spec start_link(map()) :: GenServer.on_start()
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     name = Keyword.fetch!(opts, :name)
     GenServer.start_link(__MODULE__, opts, name: via(name))
@@ -63,7 +63,14 @@ defmodule RouterCore.Pipeline do
 
   defp fanout(envelope, outputs) do
     Enum.each(outputs, fn output_name ->
-      case RustHost.send_output(output_name, envelope) do
+      result =
+        try do
+          RustHost.send_output(output_name, envelope)
+        catch
+          :exit, reason -> {:error, {:rust_host_unavailable, reason}}
+        end
+
+      case result do
         :ok ->
           Metrics.inc(:envelopes_emitted)
 
@@ -76,19 +83,23 @@ defmodule RouterCore.Pipeline do
 
   defp apply_transforms(envelope, []), do: envelope
 
-  defp apply_transforms(envelope, [%{"type" => "add_fields", "fields" => fields} | rest]) do
-    merged = Map.merge(ensure_map(envelope.payload), fields)
-    apply_transforms(%{envelope | payload: merged}, rest)
-  end
-
-  # TODO(CODEX): add filter, rename_fields, jmespath_extract transforms
-  defp apply_transforms(envelope, [unknown | rest]) do
-    Logger.warning("Unknown transform type: #{inspect(unknown)}, skipping")
+  defp apply_transforms(envelope, [%{"type" => type} = transform_config | rest]) do
+    module = transform_module(type)
+    envelope = module.apply(envelope, transform_config)
     apply_transforms(envelope, rest)
   end
 
-  defp ensure_map(payload) when is_map(payload), do: payload
-  defp ensure_map(_), do: %{}
+  # ROADMAP: add filter, rename_fields, jmespath_extract transforms
+  defp apply_transforms(envelope, [unknown | rest]) do
+    Logger.warning("Unknown transform (missing 'type' key): #{inspect(unknown)}, skipping")
+    apply_transforms(envelope, rest)
+  end
+
+  defp transform_module("add_fields"), do: RouterCore.Transforms.AddFields
+  defp transform_module(type) do
+    Logger.warning("Unknown transform type: #{inspect(type)}, using identity transform")
+    RouterCore.Transforms.Identity
+  end
 
   defp via(name), do: {:via, Registry, {RouterCore.Registry, {__MODULE__, name}}}
 end

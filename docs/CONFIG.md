@@ -71,7 +71,7 @@ pipelines:
       - type: add_fields
         fields:
           routed_by: argus
-      # TODO(CODEX): add filter, jmespath, script transforms
+      # ROADMAP: Add filter, rename_fields, and jmespath_extract transform types.
     to:                     # fan-out: list of output names
       - my_log
       - my_kafka_out
@@ -83,8 +83,6 @@ pipelines:
 |------|-------------|
 | `add_fields` | Merges static key/value pairs into the envelope payload |
 | *(no-op)*    | Omitting the transforms key passes envelopes through unchanged |
-
-TODO(CODEX): `filter`, `rename_fields`, `jmespath_extract`, `lua_script`
 
 ---
 

@@ -1,26 +1,13 @@
 # ---------------------------------------------------------------------------
 # Argus CI — GitHub Actions
-#
-# This workflow is intentionally DISABLED for now.
-# Uncomment the `on:` trigger once you have confirmed that local runners
-# have adequate capacity and the build/test suite is stable.
-#
-# TODO(CODEX): Enable CI by uncommenting the `on:` section below and
-#              verifying that self-hosted or GitHub-hosted runners have:
-#                - Rust stable toolchain
-#                - Elixir 1.16 / OTP 26
-#                - Docker Compose v2
 # ---------------------------------------------------------------------------
 
-# Uncomment to enable:
-# on:
-#   push:
-#     branches: [main, "copilot/**"]
-#   pull_request:
-#     branches: [main]
-
 on:
-  workflow_dispatch: {}   # manual trigger only
+  push:
+    branches: [main, "copilot/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
 
 name: CI
 
@@ -54,7 +41,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             crates/connector_host/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('crates/connector_host/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('crates/connector_host/Cargo.toml', 'crates/connector_host/Cargo.lock') }}
 
       - name: cargo fmt --check
         run: cargo fmt --check
@@ -90,7 +77,7 @@ jobs:
           path: |
             apps/router_core/deps
             apps/router_core/_build
-          key: ${{ runner.os }}-mix-${{ hashFiles('apps/router_core/mix.exs') }}
+          key: ${{ runner.os }}-mix-${{ hashFiles('apps/router_core/mix.exs', 'apps/router_core/mix.lock') }}
 
       - name: Install deps
         run: mix deps.get

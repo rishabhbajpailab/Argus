@@ -10,7 +10,7 @@
 FROM rust:1.77-slim AS rust-build
 
 WORKDIR /build/crates/connector_host
-COPY crates/connector_host/Cargo.toml ./
+COPY crates/connector_host/Cargo.toml crates/connector_host/Cargo.lock ./
 COPY crates/connector_host/src ./src
 
 RUN cargo build --release
@@ -23,7 +23,7 @@ FROM elixir:1.16-otp-26-slim AS elixir-build
 ENV MIX_ENV=prod
 
 WORKDIR /build/apps/router_core
-COPY apps/router_core/mix.exs ./
+COPY apps/router_core/mix.exs apps/router_core/mix.lock ./
 RUN mix local.hex --force && mix local.rebar --force && mix deps.get
 
 COPY apps/router_core .
@@ -46,5 +46,7 @@ COPY configs/ ./configs/
 
 ENV RELEASE_NODE=router@127.0.0.1
 ENV CONNECTOR_HOST_BIN=/app/bin/connector_host
+
+EXPOSE 4000
 
 CMD ["./bin/router_core", "start"]

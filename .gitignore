@@ -11,7 +11,7 @@ doc/
 
 # Rust / Cargo
 target/
-Cargo.lock
+# NOTE: Cargo.lock is intentionally NOT ignored — this is a binary crate.
 *.pdb
 
 # Docker
@@ -28,3 +28,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Worktrees
+.worktrees

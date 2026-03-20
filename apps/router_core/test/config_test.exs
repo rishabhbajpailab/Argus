@@ -223,4 +223,62 @@ defmodule RouterCore.ConfigTest do
     assert {:error, msg} = Config.load("/tmp/does_not_exist_argus.yaml")
     assert msg =~ "not found"
   end
+
+  # ---------------------------------------------------------------------------
+  # Connector spec edge cases
+  # ---------------------------------------------------------------------------
+
+  describe "validate/1 — connector spec edge cases" do
+    test "returns error when input spec is not a map" do
+      config = %{
+        "inputs" => %{"bad_in" => "not_a_map"},
+        "outputs" => %{"log_out" => %{"type" => "log"}},
+        "pipelines" => %{"p" => %{"from" => "bad_in", "to" => "log_out"}}
+      }
+
+      assert {:error, msg} = Config.validate(config)
+      assert msg =~ "input"
+      assert msg =~ "spec must be a map"
+    end
+
+    test "returns error when outputs value is not a map" do
+      config = %{
+        "inputs" => %{"k" => %{"type" => "kafka"}},
+        "outputs" => "not_a_map",
+        "pipelines" => %{}
+      }
+
+      assert {:error, msg} = Config.validate(config)
+      assert msg == "'outputs' must be a map"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Env-var interpolation edge cases
+  # ---------------------------------------------------------------------------
+
+  describe "interpolate_env — edge cases" do
+    test "substitutes empty string when env var is unset and no default is given" do
+      System.delete_env("ARGUS_TEST_UNSET_VAR_XYZ")
+
+      path = write_yaml("edge_interp_unset", """
+      inputs:
+        k_in:
+          type: kafka
+          brokers: "${ARGUS_TEST_UNSET_VAR_XYZ}"
+          topic: t
+          group_id: g
+      outputs:
+        log_out:
+          type: log
+      pipelines:
+        p:
+          from: k_in
+          to: [log_out]
+      """)
+
+      assert {:ok, loaded} = Config.load(path)
+      assert loaded["inputs"]["k_in"]["brokers"] == ""
+    end
+  end
 end

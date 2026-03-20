@@ -1,3 +1,3 @@
 pub mod log;
-// TODO(CODEX): pub mod postgres;
-// TODO(CODEX): pub mod clickhouse;
+// ROADMAP: pub mod postgres; — implement PostgreSQL sink
+// ROADMAP: pub mod clickhouse; — implement ClickHouse sink

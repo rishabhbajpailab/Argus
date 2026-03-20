@@ -24,8 +24,8 @@
                     │  ┌──────────────────┐   ┌────────────────────────┐ │
                     │  │  Connectors      │   │  Sinks                 │ │
                     │  │  • Kafka consumer│   │  • Log (stdout/stderr) │ │
-                    │  │  • TODO: MQTT    │   │  • Kafka producer      │ │
-                    │  │  • TODO: RabbitMQ│   │  • TODO: DB            │ │
+                    │  │  • (ROADMAP) MQTT│   │  • Kafka producer      │ │
+                    │  │  • (ROADMAP) AMQP│   │  • (ROADMAP) DB sink   │ │
                     │  └──────────────────┘   └────────────────────────┘ │
                     └─────────────────────────────────────────────────────┘
 ```
@@ -50,7 +50,7 @@
 |--------|----------------|
 | `protocol` | Serde types for IPC commands / events |
 | `envelope` | Canonical event struct (mirrors Elixir) |
-| `connectors::kafka` | Kafka consumer (rdkafka) |
+| `connectors::kafka` | Kafka consumer (rskafka) |
 | `sinks::log` | Print envelope as JSON to stderr |
 | Kafka producer | Inline in `main.rs` dispatch loop |
 
@@ -83,8 +83,7 @@ Line-delimited JSON over the process's stdio:
 * **New sink**: add a module under `crates/connector_host/src/sinks/`.
 * **New transform**: implement `RouterCore.Transform` behaviour in
   `apps/router_core/lib/transforms/`.
-* **Config hot-reload**: TODO(CODEX) — add inotify watcher and reload signal
-  to `RouterCore.Supervisor`.
+* **Config hot-reload**: > **Issue:** Config hot-reload — add inotify watcher and reload signal to RouterCore.Supervisor.
 
 ## Design Decisions
 
